@@ -69,7 +69,9 @@ function App() {
   const [draggingItem, setDraggingItem] = useState<DraggingItem>();
   const [nextPolygonId, setNextPolygonId] = useState(2);
   const [lastTap, setLastTap] = useState<{ polygonId: number; x: number; y: number; time: number } | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
   const tapTimeoutRef = useRef<number | null>(null);
+  const stageRef = useRef<any>(null);
   const pinchGestureRef = useRef<{
     startCenter: { x: number; y: number };
     startDistance: number;
@@ -83,6 +85,29 @@ function App() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!isExporting) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      const stage = stageRef.current;
+      if (stage) {
+        const dataURL = stage.toDataURL();
+        const link = document.createElement('a');
+        link.href = dataURL;
+        link.download = 'image.png';
+        link.click();
+      }
+
+      setIsExporting(false);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [isExporting]);
 
   function loadBackgroundImage(file: File) {
     const img = new window.Image();
@@ -134,7 +159,7 @@ function App() {
           }}
         />
         {loaded && (
-          <Stage width={540} height={540} style={{ touchAction: 'none' }}>
+          <Stage ref={stageRef} width={540} height={540} style={{ touchAction: 'none' }}>
             <Layer
               x={viewport.x}
               y={viewport.y}
@@ -329,8 +354,14 @@ function App() {
 
               {polygons.map((polygon) => (
                 <Group key={polygon.id}>
-                  <Line points={polygon.points.flat()} stroke="blue" fill="#0000ff77" strokeWidth={2} closed />
-                  {polygon.points.map((marker, index) => (
+                  <Line
+                    points={polygon.points.flat()}
+                    stroke={isExporting ? undefined : 'blue'}
+                    fill={isExporting ? '#000000' : '#0000ff77'}
+                    strokeWidth={isExporting ? 0 : 2}
+                    closed
+                  />
+                  {!isExporting && polygon.points.map((marker, index) => (
                     <Circle
                       key={`${polygon.id}-${index}`}
                       x={marker[0]}
@@ -347,14 +378,7 @@ function App() {
 
         <button
           onClick={() => {
-            const stage = document.querySelector('canvas');
-            if (stage) {
-              const dataURL = stage.toDataURL();
-              const link = document.createElement('a');
-              link.href = dataURL;
-              link.download = 'image.png';
-              link.click();
-            }
+            setIsExporting(true);
           }}
         >
           Save as image
