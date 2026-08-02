@@ -59,6 +59,37 @@ function pointInPolygon(px: number, py: number, points: Point[]): boolean {
   return inside;
 }
 
+function drawPolygonPath(ctx: CanvasRenderingContext2D, points: Point[]) {
+  if (points.length === 0) {
+    return;
+  }
+
+  ctx.beginPath();
+  ctx.moveTo(points[0][0], points[0][1]);
+  for (let index = 1; index < points.length; index++) {
+    ctx.lineTo(points[index][0], points[index][1]);
+  }
+  ctx.closePath();
+}
+
+function drawBlurredImageInPolygon(
+  ctx: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  imageSize: { width: number; height: number },
+  polygon: Polygon,
+  viewport: { x: number; y: number; scale: number },
+  canvasSize: number,
+) {
+  ctx.save();
+  drawPolygonPath(ctx, polygon.points);
+  ctx.clip();
+  ctx.filter = 'blur(10px)';
+  ctx.translate(viewport.x, viewport.y);
+  ctx.scale(viewport.scale, viewport.scale);
+  ctx.drawImage(image, (canvasSize - imageSize.width) / 2, (canvasSize - imageSize.height) / 2, imageSize.width, imageSize.height);
+  ctx.restore();
+}
+
 function App() {
   const [loaded, setLoaded] = useState(false);
   const [image, setImage] = useState<HTMLImageElement | null>(null);
@@ -69,9 +100,7 @@ function App() {
   const [draggingItem, setDraggingItem] = useState<DraggingItem>();
   const [nextPolygonId, setNextPolygonId] = useState(2);
   const [lastTap, setLastTap] = useState<{ polygonId: number; x: number; y: number; time: number } | null>(null);
-  const [isExporting, setIsExporting] = useState(false);
   const tapTimeoutRef = useRef<number | null>(null);
-  const stageRef = useRef<any>(null);
   const pinchGestureRef = useRef<{
     startCenter: { x: number; y: number };
     startDistance: number;
@@ -85,29 +114,6 @@ function App() {
       }
     };
   }, []);
-
-  useEffect(() => {
-    if (!isExporting) {
-      return;
-    }
-
-    const frameId = window.requestAnimationFrame(() => {
-      const stage = stageRef.current;
-      if (stage) {
-        const dataURL = stage.toDataURL();
-        const link = document.createElement('a');
-        link.href = dataURL;
-        link.download = 'image.png';
-        link.click();
-      }
-
-      setIsExporting(false);
-    });
-
-    return () => {
-      window.cancelAnimationFrame(frameId);
-    };
-  }, [isExporting]);
 
   function loadBackgroundImage(file: File) {
     const img = new window.Image();
@@ -144,6 +150,32 @@ function App() {
     setDraggingItem({ type: 'polygon', polygonId, x, y });
   }
 
+  function exportImage() {
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = canvasSize;
+    exportCanvas.height = canvasSize;
+
+    const ctx = exportCanvas.getContext('2d');
+    if (!ctx) {
+      return;
+    }
+
+    if (image) {
+      ctx.drawImage(image, (canvasSize - imageSize.width) / 2, (canvasSize - imageSize.height) / 2, imageSize.width, imageSize.height);
+    }
+
+    for (const polygon of polygons) {
+      if (image) {
+        drawBlurredImageInPolygon(ctx, image, imageSize, polygon, viewport, canvasSize);
+      }
+    }
+
+    const link = document.createElement('a');
+    link.href = exportCanvas.toDataURL('image/png');
+    link.download = 'image.png';
+    link.click();
+  }
+
   return (
     <>
       <section id="center">
@@ -159,7 +191,7 @@ function App() {
           }}
         />
         {loaded && (
-          <Stage ref={stageRef} width={540} height={540} style={{ touchAction: 'none' }}>
+          <Stage width={540} height={540} style={{ touchAction: 'none' }}>
             <Layer
               x={viewport.x}
               y={viewport.y}
@@ -356,12 +388,12 @@ function App() {
                 <Group key={polygon.id}>
                   <Line
                     points={polygon.points.flat()}
-                    stroke={isExporting ? undefined : 'blue'}
-                    fill={isExporting ? '#000000' : '#0000ff77'}
-                    strokeWidth={isExporting ? 0 : 2}
+                    stroke="blue"
+                    fill="#0000ff77"
+                    strokeWidth={2}
                     closed
                   />
-                  {!isExporting && polygon.points.map((marker, index) => (
+                  {polygon.points.map((marker, index) => (
                     <Circle
                       key={`${polygon.id}-${index}`}
                       x={marker[0]}
@@ -377,9 +409,7 @@ function App() {
         )}
 
         <button
-          onClick={() => {
-            setIsExporting(true);
-          }}
+          onClick={exportImage}
         >
           Save as image
         </button>
