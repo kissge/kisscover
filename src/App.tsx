@@ -117,6 +117,15 @@ function App() {
   }, []);
 
   function loadBackgroundImage(file: File) {
+    setLoaded(false);
+    setImage(null);
+    setImageSize({ width: 0, height: 0 });
+    setViewport({ x: 0, y: 0, scale: 1 });
+    setPolygons([]);
+    setDraggingItem(undefined);
+    setLastTap(null);
+    setNextPolygonId(2);
+
     const img = new window.Image();
     img.onload = () => {
       const scale = Math.min(canvasSize / img.width, canvasSize / img.height);
