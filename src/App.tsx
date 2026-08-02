@@ -101,6 +101,7 @@ function App() {
   const [nextPolygonId, setNextPolygonId] = useState(2);
   const [lastTap, setLastTap] = useState<{ polygonId: number; x: number; y: number; time: number } | null>(null);
   const tapTimeoutRef = useRef<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const pinchGestureRef = useRef<{
     startCenter: { x: number; y: number };
     startDistance: number;
@@ -178,242 +179,276 @@ function App() {
 
   return (
     <>
-      <section id="center">
-        <p>Click a marker to move it, click an edge to add a point, click inside a polygon to move it, double-tap inside a polygon to remove it, and click empty space to add another polygon.</p>
-        <input
-          type="file"
-          accept="image/*"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file) {
-              loadBackgroundImage(file);
-            }
-          }}
-        />
-        {loaded && (
-          <Stage width={540} height={540} style={{ touchAction: 'none' }}>
-            <Layer
-              x={viewport.x}
-              y={viewport.y}
-              scaleX={viewport.scale}
-              scaleY={viewport.scale}
-              onTouchStart={(e) => {
-                const touches = e.evt.touches;
-                if (touches.length !== 2) {
-                  return;
-                }
+      <main className="app-shell">
+        <section className="workspace-grid">
 
-                const stage = e.target.getStage();
-                const rect = stage?.container().getBoundingClientRect();
-                if (!rect) {
-                  return;
-                }
-
-                const [first, second] = touches;
-                pinchGestureRef.current = {
-                  startCenter: {
-                    x: (first.clientX + second.clientX) / 2 - rect.left,
-                    y: (first.clientY + second.clientY) / 2 - rect.top,
-                  },
-                  startDistance: Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY),
-                  startViewport: { ...viewport },
-                };
-              }}
-              onTouchMove={(e) => {
-                e.evt.preventDefault();
-
-                const touches = e.evt.touches;
-                if (touches.length !== 2 || !pinchGestureRef.current) {
-                  return;
-                }
-
-                const stage = e.target.getStage();
-                const rect = stage?.container().getBoundingClientRect();
-                if (!rect) {
-                  return;
-                }
-
-                const [first, second] = touches;
-                const center = {
-                  x: (first.clientX + second.clientX) / 2 - rect.left,
-                  y: (first.clientY + second.clientY) / 2 - rect.top,
-                };
-                const distance = Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY);
-                const gesture = pinchGestureRef.current;
-                const scaleFactor = distance / gesture.startDistance;
-                const nextScale = Math.min(3, Math.max(0.5, gesture.startViewport.scale * scaleFactor));
-                const worldPoint = {
-                  x: (gesture.startCenter.x - gesture.startViewport.x) / gesture.startViewport.scale,
-                  y: (gesture.startCenter.y - gesture.startViewport.y) / gesture.startViewport.scale,
-                };
-                const panDelta = {
-                  x: center.x - gesture.startCenter.x,
-                  y: center.y - gesture.startCenter.y,
-                };
-
-                setViewport({
-                  x: center.x - worldPoint.x * nextScale + panDelta.x,
-                  y: center.y - worldPoint.y * nextScale + panDelta.y,
-                  scale: nextScale,
-                });
-              }}
-              onTouchEnd={() => {
-                pinchGestureRef.current = null;
-              }}
-              onPointerDown={(e) => {
-                const stage = e.target.getStage();
-                const pos = stage?.getPointerPosition();
-                if (!pos) {
-                  return;
-                }
-
-                if (e.evt.pointerType === 'touch' && e.evt.isPrimary === false) {
-                  return;
-                }
-
-                const worldPos = getWorldPoint(pos);
-
-                for (const polygon of polygons) {
-                  for (let index = 0; index < polygon.points.length; index++) {
-                    const [markerX, markerY] = polygon.points[index];
-                    const distance = Math.sqrt((worldPos.x - markerX) ** 2 + (worldPos.y - markerY) ** 2);
-                    if (distance < dragTolerance) {
-                      setDraggingItem({ type: 'marker', polygonId: polygon.id, index });
-                      return;
-                    }
-                  }
-
-                  for (let i = 0; i < polygon.points.length; i++) {
-                    const start = polygon.points[i];
-                    const end = polygon.points[(i + 1) % polygon.points.length];
-                    const distanceToLine = pointToLineDistance(worldPos.x, worldPos.y, start[0], start[1], end[0], end[1]);
-                    if (distanceToLine < dragTolerance) {
-                      setDraggingItem({ type: 'line', polygonId: polygon.id, from: i, to: (i + 1) % polygon.points.length, x: worldPos.x, y: worldPos.y });
-                      return;
-                    }
-                  }
-
-                  if (pointInPolygon(worldPos.x, worldPos.y, polygon.points)) {
-                    const now = Date.now();
-                    const isDoubleTap = lastTap && lastTap.polygonId === polygon.id && Math.hypot(worldPos.x - lastTap.x, worldPos.y - lastTap.y) < dragTolerance && now - lastTap.time < 300;
-
-                    if (isDoubleTap) {
-                      setPolygons((current) => current.filter((candidate) => candidate.id !== polygon.id));
-                      setLastTap(null);
-                      if (tapTimeoutRef.current !== null) {
-                        window.clearTimeout(tapTimeoutRef.current);
-                        tapTimeoutRef.current = null;
+          <section className="canvas-card" aria-label="Canvas workspace">
+            <div className="canvas-frame">
+              {loaded ? (
+                <Stage width={540} height={540} style={{ touchAction: 'none' }}>
+                  <Layer
+                    x={viewport.x}
+                    y={viewport.y}
+                    scaleX={viewport.scale}
+                    scaleY={viewport.scale}
+                    onTouchStart={(e) => {
+                      const touches = e.evt.touches;
+                      if (touches.length !== 2) {
+                        return;
                       }
-                      return;
-                    }
 
-                    if (tapTimeoutRef.current !== null) {
-                      window.clearTimeout(tapTimeoutRef.current);
-                    }
+                      const stage = e.target.getStage();
+                      const rect = stage?.container().getBoundingClientRect();
+                      if (!rect) {
+                        return;
+                      }
 
-                    setLastTap({ polygonId: polygon.id, x: worldPos.x, y: worldPos.y, time: now });
-                    tapTimeoutRef.current = window.setTimeout(() => {
-                      setLastTap(null);
-                      tapTimeoutRef.current = null;
-                    }, 300);
+                      const [first, second] = touches;
+                      pinchGestureRef.current = {
+                        startCenter: {
+                          x: (first.clientX + second.clientX) / 2 - rect.left,
+                          y: (first.clientY + second.clientY) / 2 - rect.top,
+                        },
+                        startDistance: Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY),
+                        startViewport: { ...viewport },
+                      };
+                    }}
+                    onTouchMove={(e) => {
+                      e.evt.preventDefault();
 
-                    setDraggingItem({ type: 'polygon', polygonId: polygon.id, x: worldPos.x, y: worldPos.y });
-                    return;
-                  }
-                }
+                      const touches = e.evt.touches;
+                      if (touches.length !== 2 || !pinchGestureRef.current) {
+                        return;
+                      }
 
-                addPolygon(worldPos.x, worldPos.y);
-              }}
-              onPointerMove={(e) => {
-                const stage = e.target.getStage();
-                const pos = stage?.getPointerPosition();
-                if (!pos || !draggingItem) {
-                  return;
-                }
+                      const stage = e.target.getStage();
+                      const rect = stage?.container().getBoundingClientRect();
+                      if (!rect) {
+                        return;
+                      }
 
-                const worldPos = getWorldPoint(pos);
+                      const [first, second] = touches;
+                      const center = {
+                        x: (first.clientX + second.clientX) / 2 - rect.left,
+                        y: (first.clientY + second.clientY) / 2 - rect.top,
+                      };
+                      const distance = Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY);
+                      const gesture = pinchGestureRef.current;
+                      const scaleFactor = distance / gesture.startDistance;
+                      const nextScale = Math.min(3, Math.max(0.5, gesture.startViewport.scale * scaleFactor));
+                      const worldPoint = {
+                        x: (gesture.startCenter.x - gesture.startViewport.x) / gesture.startViewport.scale,
+                        y: (gesture.startCenter.y - gesture.startViewport.y) / gesture.startViewport.scale,
+                      };
+                      const panDelta = {
+                        x: center.x - gesture.startCenter.x,
+                        y: center.y - gesture.startCenter.y,
+                      };
 
-                if (draggingItem.type === 'marker') {
-                  setPolygons((current) => current.map((polygon) => {
-                    if (polygon.id !== draggingItem.polygonId) {
-                      return polygon;
-                    }
+                      setViewport({
+                        x: center.x - worldPoint.x * nextScale + panDelta.x,
+                        y: center.y - worldPoint.y * nextScale + panDelta.y,
+                        scale: nextScale,
+                      });
+                    }}
+                    onTouchEnd={() => {
+                      pinchGestureRef.current = null;
+                    }}
+                    onPointerDown={(e) => {
+                      const stage = e.target.getStage();
+                      const pos = stage?.getPointerPosition();
+                      if (!pos) {
+                        return;
+                      }
 
-                    return {
-                      ...polygon,
-                      points: polygon.points.map((marker, index) => index === draggingItem.index ? [worldPos.x, worldPos.y] : marker),
-                    };
-                  }));
-                } else if (draggingItem.type === 'line') {
-                  setPolygons((current) => current.map((polygon) => {
-                    if (polygon.id !== draggingItem.polygonId) {
-                      return polygon;
-                    }
+                      if (e.evt.pointerType === 'touch' && e.evt.isPrimary === false) {
+                        return;
+                      }
 
-                    const newPoints = [...polygon.points];
-                    newPoints.splice(draggingItem.to, 0, [worldPos.x, worldPos.y]);
-                    return { ...polygon, points: newPoints };
-                  }));
-                  setDraggingItem({ type: 'marker', polygonId: draggingItem.polygonId, index: draggingItem.to });
-                } else if (draggingItem.type === 'polygon') {
-                  const dx = worldPos.x - draggingItem.x;
-                  const dy = worldPos.y - draggingItem.y;
-                  setPolygons((current) => current.map((polygon) => {
-                    if (polygon.id !== draggingItem.polygonId) {
-                      return polygon;
-                    }
+                      const worldPos = getWorldPoint(pos);
 
-                    return {
-                      ...polygon,
-                      points: polygon.points.map(([x, y]) => [x + dx, y + dy] as Point),
-                    };
-                  }));
-                  setDraggingItem({ type: 'polygon', polygonId: draggingItem.polygonId, x: worldPos.x, y: worldPos.y });
-                }
-              }}
-              onPointerUp={() => {
-                setDraggingItem(undefined);
-                pinchGestureRef.current = null;
-              }}
-              onPointerLeave={() => {
-                setDraggingItem(undefined);
-                pinchGestureRef.current = null;
-              }}
-            >
-              {image && (
-                <Image x={(canvasSize - imageSize.width) / 2} y={(canvasSize - imageSize.height) / 2} width={imageSize.width} height={imageSize.height} image={image} />
+                      for (const polygon of polygons) {
+                        for (let index = 0; index < polygon.points.length; index++) {
+                          const [markerX, markerY] = polygon.points[index];
+                          const distance = Math.sqrt((worldPos.x - markerX) ** 2 + (worldPos.y - markerY) ** 2);
+                          if (distance < dragTolerance) {
+                            setDraggingItem({ type: 'marker', polygonId: polygon.id, index });
+                            return;
+                          }
+                        }
+
+                        for (let i = 0; i < polygon.points.length; i++) {
+                          const start = polygon.points[i];
+                          const end = polygon.points[(i + 1) % polygon.points.length];
+                          const distanceToLine = pointToLineDistance(worldPos.x, worldPos.y, start[0], start[1], end[0], end[1]);
+                          if (distanceToLine < dragTolerance) {
+                            setDraggingItem({ type: 'line', polygonId: polygon.id, from: i, to: (i + 1) % polygon.points.length, x: worldPos.x, y: worldPos.y });
+                            return;
+                          }
+                        }
+
+                        if (pointInPolygon(worldPos.x, worldPos.y, polygon.points)) {
+                          const now = Date.now();
+                          const isDoubleTap = lastTap && lastTap.polygonId === polygon.id && Math.hypot(worldPos.x - lastTap.x, worldPos.y - lastTap.y) < dragTolerance && now - lastTap.time < 300;
+
+                          if (isDoubleTap) {
+                            setPolygons((current) => current.filter((candidate) => candidate.id !== polygon.id));
+                            setLastTap(null);
+                            if (tapTimeoutRef.current !== null) {
+                              window.clearTimeout(tapTimeoutRef.current);
+                              tapTimeoutRef.current = null;
+                            }
+                            return;
+                          }
+
+                          if (tapTimeoutRef.current !== null) {
+                            window.clearTimeout(tapTimeoutRef.current);
+                          }
+
+                          setLastTap({ polygonId: polygon.id, x: worldPos.x, y: worldPos.y, time: now });
+                          tapTimeoutRef.current = window.setTimeout(() => {
+                            setLastTap(null);
+                            tapTimeoutRef.current = null;
+                          }, 300);
+
+                          setDraggingItem({ type: 'polygon', polygonId: polygon.id, x: worldPos.x, y: worldPos.y });
+                          return;
+                        }
+                      }
+
+                      addPolygon(worldPos.x, worldPos.y);
+                    }}
+                    onPointerMove={(e) => {
+                      const stage = e.target.getStage();
+                      const pos = stage?.getPointerPosition();
+                      if (!pos || !draggingItem) {
+                        return;
+                      }
+
+                      const worldPos = getWorldPoint(pos);
+
+                      if (draggingItem.type === 'marker') {
+                        setPolygons((current) => current.map((polygon) => {
+                          if (polygon.id !== draggingItem.polygonId) {
+                            return polygon;
+                          }
+
+                          return {
+                            ...polygon,
+                            points: polygon.points.map((marker, index) => index === draggingItem.index ? [worldPos.x, worldPos.y] : marker),
+                          };
+                        }));
+                      } else if (draggingItem.type === 'line') {
+                        setPolygons((current) => current.map((polygon) => {
+                          if (polygon.id !== draggingItem.polygonId) {
+                            return polygon;
+                          }
+
+                          const newPoints = [...polygon.points];
+                          newPoints.splice(draggingItem.to, 0, [worldPos.x, worldPos.y]);
+                          return { ...polygon, points: newPoints };
+                        }));
+                        setDraggingItem({ type: 'marker', polygonId: draggingItem.polygonId, index: draggingItem.to });
+                      } else if (draggingItem.type === 'polygon') {
+                        const dx = worldPos.x - draggingItem.x;
+                        const dy = worldPos.y - draggingItem.y;
+                        setPolygons((current) => current.map((polygon) => {
+                          if (polygon.id !== draggingItem.polygonId) {
+                            return polygon;
+                          }
+
+                          return {
+                            ...polygon,
+                            points: polygon.points.map(([x, y]) => [x + dx, y + dy] as Point),
+                          };
+                        }));
+                        setDraggingItem({ type: 'polygon', polygonId: draggingItem.polygonId, x: worldPos.x, y: worldPos.y });
+                      }
+                    }}
+                    onPointerUp={() => {
+                      setDraggingItem(undefined);
+                      pinchGestureRef.current = null;
+                    }}
+                    onPointerLeave={() => {
+                      setDraggingItem(undefined);
+                      pinchGestureRef.current = null;
+                    }}
+                  >
+                    {image && (
+                      <Image x={(canvasSize - imageSize.width) / 2} y={(canvasSize - imageSize.height) / 2} width={imageSize.width} height={imageSize.height} image={image} />
+                    )}
+
+                    {polygons.map((polygon) => (
+                      <Group key={polygon.id}>
+                        <Line
+                          points={polygon.points.flat()}
+                          stroke="blue"
+                          fill="#0000ff77"
+                          strokeWidth={2}
+                          closed
+                        />
+                        {polygon.points.map((marker, index) => (
+                          <Circle
+                            key={`${polygon.id}-${index}`}
+                            x={marker[0]}
+                            y={marker[1]}
+                            radius={5}
+                            fill="red"
+                          />
+                        ))}
+                      </Group>
+                    ))}
+                  </Layer>
+                </Stage>
+              ) : (
+                <div className="empty-canvas">
+                  <div className="empty-orb" />
+                  <h3>Drop in an image to start shaping blur zones.</h3>
+                  <p>
+                    The workspace will appear here once you upload a file. You can then place polygons, adjust points, and export the result.
+                  </p>
+                </div>
               )}
+            </div>
+          </section>
+        </section>
+      </main>
 
-              {polygons.map((polygon) => (
-                <Group key={polygon.id}>
-                  <Line
-                    points={polygon.points.flat()}
-                    stroke="blue"
-                    fill="#0000ff77"
-                    strokeWidth={2}
-                    closed
-                  />
-                  {polygon.points.map((marker, index) => (
-                    <Circle
-                      key={`${polygon.id}-${index}`}
-                      x={marker[0]}
-                      y={marker[1]}
-                      radius={5}
-                      fill="red"
-                    />
-                  ))}
-                </Group>
-              ))}
-            </Layer>
-          </Stage>
-        )}
+      <div className="canvas-toolbar canvas-toolbar--fixed">
+        <div>
+          <h2>Editor</h2>
+          <p>{loaded ? 'Fine-tune blur areas directly on the canvas.' : 'Load an image to unlock the editor.'}</p>
+        </div>
+        <div className="canvas-toolbar__actions">
+          <input
+            ref={fileInputRef}
+            className="file-input"
+            id="image-upload"
+            type="file"
+            accept="image/*"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) {
+                loadBackgroundImage(file);
+              }
+            }}
+          />
 
-        <button
-          onClick={exportImage}
-        >
-          Save as image
-        </button>
-      </section>
+          <button
+            className="open-button"
+            type="button"
+            onClick={() => {
+              fileInputRef.current?.click();
+            }}
+          >
+            Open file
+          </button>
+
+          <button className="save-button" onClick={exportImage} disabled={!loaded}>
+            Save as image
+          </button>
+        </div>
+      </div>
     </>
   );
 }
