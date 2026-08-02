@@ -1,7 +1,6 @@
 import './App.css';
 import { useEffect, useRef, useState } from 'react';
 import { Stage, Layer, Image, Circle, Line, Group } from 'react-konva';
-import Cat from './assets/cat.jpg';
 
 const dragTolerance = 20;
 
@@ -64,29 +63,31 @@ function App() {
   const [loaded, setLoaded] = useState(false);
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
-  const [polygons, setPolygons] = useState<Polygon[]>([
-    { id: 1, points: [[100, 100], [200, 200], [175, 125]] },
-  ]);
+  const canvasSize = 540;
+  const [polygons, setPolygons] = useState<Polygon[]>([]);
   const [draggingItem, setDraggingItem] = useState<DraggingItem>();
   const [nextPolygonId, setNextPolygonId] = useState(2);
   const [lastTap, setLastTap] = useState<{ polygonId: number; x: number; y: number; time: number } | null>(null);
   const tapTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const img = new window.Image();
-    img.onload = () => {
-      setImage(img);
-      setLoaded(true);
-      setImageSize({ width: img.width, height: img.height });
-    };
-    img.src = Cat;
-
     return () => {
       if (tapTimeoutRef.current !== null) {
         window.clearTimeout(tapTimeoutRef.current);
       }
     };
   }, []);
+
+  function loadBackgroundImage(file: File) {
+    const img = new window.Image();
+    img.onload = () => {
+      const scale = Math.min(canvasSize / img.width, canvasSize / img.height);
+      setImage(img);
+      setLoaded(true);
+      setImageSize({ width: img.width * scale, height: img.height * scale });
+    };
+    img.src = URL.createObjectURL(file);
+  }
 
   function addPolygon(x: number, y: number) {
     const polygonId = nextPolygonId;
@@ -109,6 +110,16 @@ function App() {
     <>
       <section id="center">
         <p>Click a marker to move it, click an edge to add a point, click inside a polygon to move it, double-tap inside a polygon to remove it, and click empty space to add another polygon.</p>
+        <input
+          type="file"
+          accept="image/*"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) {
+              loadBackgroundImage(file);
+            }
+          }}
+        />
         {loaded && (
           <Stage width={540} height={540}>
             <Layer
@@ -223,7 +234,7 @@ function App() {
               }}
             >
               {image && (
-                <Image x={10} y={10} width={520} height={(520 * imageSize.height) / imageSize.width} image={image} />
+                <Image x={(canvasSize - imageSize.width) / 2} y={(canvasSize - imageSize.height) / 2} width={imageSize.width} height={imageSize.height} image={image} />
               )}
 
               {polygons.map((polygon) => (
